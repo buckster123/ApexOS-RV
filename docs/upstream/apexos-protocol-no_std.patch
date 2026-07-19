@@ -1,0 +1,146 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 97a9ba2..83d4748 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -4,6 +4,13 @@ version = "0.1.0"
+ edition = "2021"
+ description = "Shared wire-protocol types (Event enum + WS/a2a contract) for the ApexOS-RS workspace. Lean: serde only."
+ 
++[features]
++default = ["std"]
++std     = ["serde/std", "serde_json/std"]
++alloc   = ["serde/alloc", "serde_json/alloc"]
++
+ [dependencies]
+-serde      = { workspace = true }
+-serde_json = { workspace = true }
++# Concretized (was `{ workspace = true }`): the no_std gate needs default-features
++# off, which a workspace-inherited dependency cannot express at the use site.
++serde      = { version = "1", default-features = false, features = ["derive"] }
++serde_json = { version = "1", default-features = false }
+diff --git a/src/lib.rs b/src/lib.rs
+index a9b4c86..b3c0d97 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -14,19 +14,37 @@
+ //! glob), so every existing `apexos_core::Event` / `apexos_core::types::Event`
+ //! path keeps resolving unchanged.
+ 
+-use std::collections::HashMap;
+-use std::fmt;
++#![cfg_attr(not(feature = "std"), no_std)]
++
++#[cfg(not(feature = "std"))]
++extern crate alloc;
++
++use core::fmt;
+ use serde::{Deserialize, Serialize};
+ 
++#[cfg(not(feature = "std"))]
++use alloc::{collections::BTreeMap, string::String, vec::Vec};
++#[cfg(feature = "std")]
++use std::collections::HashMap;
++
++/// Map type for protocol fields: `HashMap` under `std` (unchanged behavior),
++/// `BTreeMap` under `no_std + alloc`. Serializes to an identical JSON object
++/// either way — JSON objects are unordered; `tests/wire_compat.rs` locks this.
++/// Keys must be `Ord` for the `no_std` side (protocol keys are `String`s).
++#[cfg(feature = "std")]
++pub type Map<K, V> = HashMap<K, V>;
++#[cfg(not(feature = "std"))]
++pub type Map<K, V> = BTreeMap<K, V>;
++
+ // ── ID newtypes (cheap, copyable, type-safe) ───────────────────────────────
+ 
+-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
++#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+ pub struct SessionId(pub u64);
+ 
+-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
++#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+ pub struct ActionId(pub u64);
+ 
+-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
++#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+ pub struct GoalId(pub u64);
+ 
+ /// Lifecycle state of an autonomous Goal run (docs/ideas/goal-driver-design.md).
+@@ -45,7 +63,7 @@ pub enum GoalState {
+     Cancelled,
+ }
+ 
+-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
++#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+ pub struct PluginId(pub String);
+ 
+ impl fmt::Display for PluginId {
+@@ -54,7 +72,7 @@ impl fmt::Display for PluginId {
+ 
+ // ── Evolution types ──────────────────────────────────────────────────────────
+ 
+-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
++#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+ pub struct EvolutionId(pub u64);
+ 
+ /// Policy mode — lives here so EvolutionProposal (also in core) can reference
+@@ -124,7 +142,7 @@ pub enum EvolutionProposal {
+     RegisterMcpServer {
+         name:    String,
+         command: String,
+-        env:     HashMap<String, String>,
++        env:     Map<String, String>,
+         reason:  String,
+     },
+     UnregisterMcpServer {
+diff --git a/tests/wire_compat.rs b/tests/wire_compat.rs
+new file mode 100644
+index 0000000..36e981c
+--- /dev/null
++++ b/tests/wire_compat.rs
+@@ -0,0 +1,46 @@
++//! Wire-shape lock for the `Map` alias (local patch; part of the no_std gate).
++//!
++//! The one map-bearing protocol field (`RegisterMcpServer.env`) must serialize
++//! to the same JSON object regardless of the backing map (`HashMap` under std,
++//! `BTreeMap` under no_std+alloc). JSON objects are unordered, so equality is
++//! asserted semantically on `serde_json::Value`, never on strings. Run under both:
++//!   cargo test -p apexos-protocol
++//!   cargo test -p apexos-protocol --no-default-features --features alloc
++
++use apexos_protocol::{EvolutionProposal, Map};
++
++#[test]
++fn map_bearing_proposal_wire_shape_is_map_impl_independent() {
++    let mut env: Map<String, String> = Map::new();
++    env.insert("RUST_LOG".into(), "info".into());
++    env.insert("A2A_ROLE".into(), "edge".into());
++
++    let p = EvolutionProposal::RegisterMcpServer {
++        name:    "vision".into(),
++        command: "/usr/local/bin/vision-mcp".into(),
++        env,
++        reason:  "add image capture".into(),
++    };
++
++    let v = serde_json::to_value(&p).unwrap();
++    assert_eq!(
++        v,
++        serde_json::json!({
++            "kind":    "register_mcp_server",
++            "name":    "vision",
++            "command": "/usr/local/bin/vision-mcp",
++            "env":     { "A2A_ROLE": "edge", "RUST_LOG": "info" },
++            "reason":  "add image capture",
++        })
++    );
++
++    // And it round-trips: the Value parses back into the typed proposal.
++    let back: EvolutionProposal = serde_json::from_value(v).unwrap();
++    match back {
++        EvolutionProposal::RegisterMcpServer { env, .. } => {
++            assert_eq!(env.get("RUST_LOG").map(String::as_str), Some("info"));
++            assert_eq!(env.len(), 2);
++        }
++        other => panic!("wrong variant: {other:?}"),
++    }
++}
