@@ -1,0 +1,10 @@
+[package]
+name = "apexos-rv-agent-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+apexos-protocol = { path = "../vendor/apexos-protocol", default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+serde_json = "1"   # host-side tests only (state.rs wire tests + event serialization checks)

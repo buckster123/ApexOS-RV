@@ -45,7 +45,7 @@ The cerebro-cortex MCP is this project's long-term memory; the built-in memory f
 
 - **Phase-gate checkpoint:** when a phase's acceptance passes, `memory_store` a checkpoint (tags `apexos-rv`, `checkpoint`, `phase-N`) with gate evidence + deviations.
 - **Session save:** before a session ends or context rolls over — and before risky operations — `session_save` with phase state, in-flight work, next action. After a crash/OOM: `session_recall` + `recall` (tag `apexos-rv`) to rebuild, then PLAN.md checklists are ground truth on any conflict.
-- **Intentions:** keep one open intention naming the next concrete step; resolve it at phase boundaries.
+- **Intentions:** for ideas André voices mid-session or explicitly parks — not a phase-todo mechanism (PLAN.md checklists are the todo list; the forward pointer lives in the latest checkpoint).
 - Insights worth keeping (API-drift discoveries, debugging war stories, upstream findings) → regular memories tagged `apexos-rv`.
 
 ## When stuck
