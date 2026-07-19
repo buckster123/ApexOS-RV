@@ -5,9 +5,16 @@
 use alloc::string::ToString;
 use alloc::vec;
 use apexos_protocol::{ActionId, Event, GoalId, GoalState, PluginId, SessionId, ToolCall, ToolSpec};
-use apexos_rv_agent_core::{GoalDriver, ScriptedInference};
+use apexos_rv_agent_core::{GoalDriver, ScriptedInference, TurnResult};
 
-use crate::println;
+use crate::{println, time};
+
+/// Scaled-down analog of upstream's 900 s `STEP_TIMEOUT` (goal.rs @ pin):
+/// 2 s of emulated time — long enough to prove real waiting, short enough
+/// for the 30 s harness timeout.
+const STEP_TIMEOUT_TICKS: u64 = 2 * time::TICKS_PER_SEC;
+/// Idle quantum between watchdog checks while a turn is pending: 10 ms.
+const IDLE_QUANTUM_TICKS: u64 = time::TICKS_PER_SEC / 100;
 
 fn emit(ev: &Event) {
     println!("{}", serde_json::to_string(ev).unwrap());
@@ -60,23 +67,55 @@ fn fold_demo() {
     println!("state: fold ok — sessions=1 tools=2 approvals=0");
 }
 
-/// Run the fold demo then drive the scripted goal to its terminal state.
-/// Returns `true` iff the goal ended `Done`.
+/// Run the fold demo, then drive the scripted goal through the P7 cooperative
+/// loop: poll → armed-`wfi` idle → mtime stall watchdog (upstream
+/// `fail_stalled` semantics, measured in real emulated time). Returns `true`
+/// iff the goal ended `Done`.
 pub fn run() -> bool {
     fold_demo();
 
     #[cfg(not(feature = "fail-script"))]
     let script = apexos_rv_agent_core::SCRIPT_SUCCESS;
     #[cfg(feature = "fail-script")]
-    let script = apexos_rv_agent_core::SCRIPT_STALL;
+    let script = apexos_rv_agent_core::SCRIPT_HANG;
 
     let mut inf = ScriptedInference::new(script);
-    let driver = GoalDriver::start(
+    let mut driver = GoalDriver::start(
         GoalId(1),
         "prove the colony contract end-to-end on bare metal",
         8,
         &mut emit,
     );
-    let terminal = driver.run(&mut inf, &mut emit);
-    matches!(terminal, GoalState::Done)
+
+    let mut polls: u64 = 0;
+    let mut last_step = driver.step();
+    let mut step_started = time::mtime();
+    while matches!(driver.state(), GoalState::Acting) {
+        polls += 1;
+        driver.poll(&mut inf, &mut emit);
+        if driver.step() != last_step {
+            last_step = driver.step();
+            step_started = time::mtime();
+        }
+        if matches!(driver.state(), GoalState::Acting) {
+            let now = time::mtime();
+            if now.wrapping_sub(step_started) > STEP_TIMEOUT_TICKS {
+                // The watchdog, not the LLM, fails a quiet step (fail_stalled).
+                driver.advance(TurnResult::Stalled, &mut emit);
+            } else {
+                time::arm_wakeup(now + IDLE_QUANTUM_TICKS);
+                riscv::asm::wfi();
+            }
+        }
+    }
+
+    if matches!(driver.state(), GoalState::Done) {
+        // Poll count is deterministic on the success path (every poll
+        // transitions); the fail path prints nothing timing-derived.
+        println!("loop: goal reached Done in {polls} polls");
+        println!("APEXOS-RV: goal done — halting");
+        true
+    } else {
+        false
+    }
 }

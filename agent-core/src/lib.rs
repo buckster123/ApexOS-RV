@@ -12,6 +12,6 @@ pub mod state;
 
 pub use goal::{
     GoalDriver, Inference, ScriptStep, ScriptedInference, TickContext, TurnResult, Verdict,
-    DEFAULT_MAX_STEPS, MAX_STEPS_CEIL, SCRIPT_STALL, SCRIPT_SUCCESS,
+    DEFAULT_MAX_STEPS, MAX_STEPS_CEIL, SCRIPT_HANG, SCRIPT_STALL, SCRIPT_SUCCESS,
 };
 pub use state::SystemState;

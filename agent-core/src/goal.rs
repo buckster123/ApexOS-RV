@@ -40,9 +40,15 @@ pub enum Verdict {
     Blocked(String), // reason
 }
 
-/// How the turn engine observed the in-flight step end.
+/// How the turn engine observed the in-flight step.
 pub enum TurnResult {
+    /// The turn finished and reported (or defaulted) a verdict.
     Completed(Verdict),
+    /// The turn is still running — no transition; poll again later. A Pending
+    /// that outlives the step timeout is turned into `Stalled` by the caller's
+    /// watchdog (kernel mtime on metal; upstream `fail_stalled`'s 30 s tick).
+    Pending,
+    /// The turn engine went quiet past the step timeout (watchdog verdict).
     Stalled,
 }
 
@@ -98,6 +104,12 @@ impl GoalDriver {
         self.state
     }
 
+    /// The in-flight step (1-indexed) — the kernel watchdog resets its stall
+    /// clock whenever this changes.
+    pub fn step(&self) -> u32 {
+        self.step
+    }
+
     fn emit_state(&self, emit: &mut dyn FnMut(&Event), detail: &str) {
         emit(&Event::GoalStateChanged {
             goal: self.goal,
@@ -117,8 +129,14 @@ impl GoalDriver {
         if !matches!(self.state, GoalState::Acting) {
             return;
         }
+        // A pending turn is not a transition — nothing to apply (poll()
+        // filters this too; direct advance() calls get the same semantics).
+        if matches!(result, TurnResult::Pending) {
+            return;
+        }
         self.steer = None;
         match result {
+            TurnResult::Pending => unreachable!(),
             TurnResult::Stalled => {
                 self.state = GoalState::Failed;
                 self.emit_state(emit, "step stalled — no completion");
@@ -144,21 +162,36 @@ impl GoalDriver {
         }
     }
 
+    /// One cooperative tick (P7): consult the inference once. `Pending` leaves
+    /// the goal untouched — the in-flight step continues and the steer stays
+    /// visible on every poll of that step; anything else advances.
+    pub fn poll<I: Inference>(&mut self, inf: &mut I, emit: &mut dyn FnMut(&Event)) {
+        if !matches!(self.state, GoalState::Acting) {
+            return;
+        }
+        let result = {
+            let ctx = TickContext {
+                goal: self.goal,
+                objective: &self.objective,
+                step: self.step,
+                max_steps: self.max_steps,
+                steer: self.steer.as_deref(),
+            };
+            inf.next(&ctx)
+        };
+        if matches!(result, TurnResult::Pending) {
+            return;
+        }
+        self.advance(result, emit);
+    }
+
     /// Drive until the goal leaves `Acting`; returns the parked/terminal state.
+    /// Only for engines whose turns always complete (host tests, transcripts) —
+    /// a perpetually-`Pending` inference needs the kernel loop's watchdog, or
+    /// this would spin forever.
     pub fn run<I: Inference>(mut self, inf: &mut I, emit: &mut dyn FnMut(&Event)) -> GoalState {
         while matches!(self.state, GoalState::Acting) {
-            let steer = self.steer.take();
-            let result = {
-                let ctx = TickContext {
-                    goal: self.goal,
-                    objective: &self.objective,
-                    step: self.step,
-                    max_steps: self.max_steps,
-                    steer: steer.as_deref(),
-                };
-                inf.next(&ctx)
-            };
-            self.advance(result, emit);
+            self.poll(inf, emit);
         }
         self.state
     }
@@ -173,6 +206,9 @@ pub enum ScriptStep {
     Done,
     Blocked(&'static str),
     Stall,
+    /// The turn stays in flight: this entry is **not consumed** — every poll
+    /// observes it again until an external watchdog stalls the goal.
+    Pending,
 }
 
 /// Deterministic, compiled-in "LLM": replays a transcript. An exhausted script
@@ -190,18 +226,24 @@ impl ScriptedInference {
 
 impl Inference for ScriptedInference {
     fn next(&mut self, _ctx: &TickContext<'_>) -> TurnResult {
-        let step = self.steps.get(self.at);
-        self.at += 1;
-        match step {
-            Some(ScriptStep::Continue) => TurnResult::Completed(Verdict::Continue(None)),
-            Some(ScriptStep::ContinueWith(s)) => {
-                TurnResult::Completed(Verdict::Continue(Some(String::from(*s))))
+        match self.steps.get(self.at) {
+            // In-flight turn: entry not consumed — every poll sees it again.
+            Some(ScriptStep::Pending) => TurnResult::Pending,
+            entry => {
+                self.at += 1;
+                match entry {
+                    Some(ScriptStep::Continue) => TurnResult::Completed(Verdict::Continue(None)),
+                    Some(ScriptStep::ContinueWith(s)) => {
+                        TurnResult::Completed(Verdict::Continue(Some(String::from(*s))))
+                    }
+                    Some(ScriptStep::Done) => TurnResult::Completed(Verdict::Done),
+                    Some(ScriptStep::Blocked(r)) => {
+                        TurnResult::Completed(Verdict::Blocked(String::from(*r)))
+                    }
+                    Some(ScriptStep::Stall) | None => TurnResult::Stalled,
+                    Some(ScriptStep::Pending) => unreachable!(),
+                }
             }
-            Some(ScriptStep::Done) => TurnResult::Completed(Verdict::Done),
-            Some(ScriptStep::Blocked(r)) => {
-                TurnResult::Completed(Verdict::Blocked(String::from(*r)))
-            }
-            Some(ScriptStep::Stall) | None => TurnResult::Stalled,
         }
     }
 }
@@ -214,6 +256,10 @@ pub const SCRIPT_SUCCESS: &[ScriptStep] = &[
     ScriptStep::Done,
 ];
 pub const SCRIPT_STALL: &[ScriptStep] = &[ScriptStep::Continue, ScriptStep::Stall];
+
+/// Kernel fail-script (P7): step 2's turn never completes — the mtime watchdog
+/// must stall it. The honest, time-measured negative path.
+pub const SCRIPT_HANG: &[ScriptStep] = &[ScriptStep::Continue, ScriptStep::Pending];
 
 // ── Host tests (P6.6): one per FR-8 behavior ─────────────────────────────────
 
@@ -345,6 +391,58 @@ mod tests {
                 assert!(!yolo);
             }
         }
+    }
+
+    #[test]
+    fn pending_leaves_the_goal_untouched_until_the_watchdog_stalls_it() {
+        let mut events = Vec::new();
+        let mut sink = |ev: &Event| {
+            if let Event::GoalStateChanged { state, step, detail, .. } = ev {
+                events.push((*state, *step, detail.clone()));
+            }
+        };
+        let mut inf = ScriptedInference::new(SCRIPT_HANG);
+        let mut driver = GoalDriver::start(GoalId(9), "hang", 8, &mut sink);
+        for _ in 0..5 {
+            driver.poll(&mut inf, &mut sink);
+        }
+        assert_eq!(driver.state(), GoalState::Acting);
+        assert_eq!(driver.step(), 2);
+        driver.advance(TurnResult::Stalled, &mut sink); // the kernel watchdog fires
+        assert_eq!(driver.state(), GoalState::Failed);
+        assert_eq!(events.len(), 3, "Acting(1) + Acting(2) + Failed; Pending emits nothing");
+        assert_eq!(events[1], (GoalState::Acting, 2, String::new()));
+        assert_eq!(events.last().unwrap().2, "step stalled — no completion");
+    }
+
+    #[test]
+    fn steer_persists_across_pending_polls_of_the_same_step() {
+        struct Probe {
+            calls: u32,
+        }
+        impl Inference for Probe {
+            fn next(&mut self, ctx: &TickContext<'_>) -> TurnResult {
+                self.calls += 1;
+                match self.calls {
+                    1 => TurnResult::Completed(Verdict::Continue(Some("hold this".into()))),
+                    2 | 3 => {
+                        assert_eq!(ctx.steer, Some("hold this"));
+                        TurnResult::Pending
+                    }
+                    _ => {
+                        assert_eq!(ctx.steer, Some("hold this"));
+                        TurnResult::Completed(Verdict::Done)
+                    }
+                }
+            }
+        }
+        let mut sink = |_: &Event| {};
+        let mut probe = Probe { calls: 0 };
+        let mut driver = GoalDriver::start(GoalId(10), "steer-persist", 8, &mut sink);
+        for _ in 0..4 {
+            driver.poll(&mut probe, &mut sink);
+        }
+        assert_eq!(driver.state(), GoalState::Done);
     }
 
     #[test]

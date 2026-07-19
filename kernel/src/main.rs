@@ -7,6 +7,7 @@ pub mod agent;
 pub mod heap;
 pub mod proto;
 pub mod qemu;
+pub mod time;
 pub mod uart;
 
 use riscv_rt::entry;
@@ -15,6 +16,7 @@ use riscv_rt::entry;
 fn main() -> ! {
     println!("apexos-rv: hart 0 online");
     heap::init();
+    time::init();
 
     // P4.3 alloc smoke: format! → Vec → print → drop (deterministic output).
     {
