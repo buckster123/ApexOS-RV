@@ -109,14 +109,18 @@ pub fn run(nic: Option<crate::net::Nic>) -> bool {
 
 /// The P7 cooperative loop: poll → armed-`wfi` idle → mtime stall watchdog
 /// (upstream `fail_stalled` semantics, measured in real emulated time).
+/// The goal objective — overridable at build time for live runs, where the
+/// remote model may need context the default wording doesn't carry (first
+/// live contact taught us this: APEX blocked the goal for "no RISC-V
+/// substrate exists" while answering over a socket served by that substrate).
+const OBJECTIVE: &str = match option_env!("APEXRV_OBJECTIVE") {
+    Some(o) => o,
+    None => "prove the colony contract end-to-end on bare metal",
+};
+
 fn drive_goal<I: Inference>(inf: &mut I) -> bool {
     let step_timeout = step_timeout_ticks();
-    let mut driver = GoalDriver::start(
-        GoalId(1),
-        "prove the colony contract end-to-end on bare metal",
-        8,
-        &mut emit,
-    );
+    let mut driver = GoalDriver::start(GoalId(1), OBJECTIVE, 8, &mut emit);
 
     let mut polls: u64 = 0;
     let mut last_step = driver.step();
