@@ -1,0 +1,5 @@
+# Stable channel; rustc version at project start recorded in PLAN.md Phase 0 notes.
+# The targets line makes rustup auto-install the cross target on fresh clones.
+[toolchain]
+channel = "stable"
+targets = ["riscv64gc-unknown-none-elf"]

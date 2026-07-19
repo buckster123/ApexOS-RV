@@ -1,0 +1,6 @@
+/target
+*.log
+!xtest/fixtures/*.log
+
+# local-only: pre-review draft docs, superseded by the graduated root docs
+/files/
