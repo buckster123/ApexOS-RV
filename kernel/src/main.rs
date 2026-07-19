@@ -4,6 +4,7 @@
 extern crate alloc;
 
 pub mod heap;
+pub mod proto;
 pub mod qemu;
 pub mod uart;
 
@@ -21,6 +22,9 @@ fn main() -> ! {
         v.push(s);
         println!("{} (heap: {} KiB)", v[0], heap::SIZE / 1024);
     }
+
+    // P5.4 wire contract on metal: colony events round-trip and stream as JSON.
+    proto::run();
 
     // P4 negative gate: an allocation the tiny heap cannot serve → visible OOM.
     #[cfg(feature = "tiny-heap")]

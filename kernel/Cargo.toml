@@ -10,9 +10,8 @@ critical-section = "1.2"  # API crate; the impl comes from riscv's single-hart f
 # from the link-search path (build.rs) — only -Tlink.x is passed, no -Tmemory.x.
 riscv-rt       = { version = "0.18", features = ["memory"] }
 embedded-alloc   = { version = "0.7", default-features = false, features = ["llff"] }  # smallest allocator (D5)
-# Phase 5+:
-# apexos-protocol = { path = "../vendor/apexos-protocol", default-features = false, features = ["alloc"] }
-# serde_json      = { version = "1", default-features = false, features = ["alloc"] }
+apexos-protocol  = { path = "../vendor/apexos-protocol", default-features = false, features = ["alloc"] }
+serde_json       = { version = "1", default-features = false, features = ["alloc"] }
 # Phase 6+:
 # apexos-rv-agent-core = { path = "../agent-core" }
 
