@@ -50,10 +50,10 @@ Upstream reference: **ApexOS-RS @ `676aa3870ad7e2b469be1dcaec23498c943491a9`** (
 
 **Objective:** proof of life. QEMU boots our ELF and bytes appear.
 
-- [ ] P2.1 Crude UART poke: raw `write_volatile` of a banner string to `0x1000_0000` (no driver yet), first line of the entry fn
-- [ ] P2.2 Confirm the cargo runner works: `cargo run` invokes `qemu-system-riscv64 -machine virt … -smp 1 -bios none -kernel <elf>`
-- [ ] P2.3 Confirm load layout: `readelf -h` entry point = `0x80000000`; text/rodata/data/bss all inside RAM per `memory.x`
-- [ ] P2.4 Banner prints; kernel then parks in `loop { wfi }`
+- [x] P2.1 Crude UART poke: raw `write_volatile` of a banner string to `0x1000_0000` (no driver yet), first line of the entry fn
+- [x] P2.2 Confirm the cargo runner works: `cargo run` invokes `qemu-system-riscv64 -machine virt … -smp 1 -bios none -kernel <elf>`
+- [x] P2.3 Confirm load layout: `readelf` entry point = `0x80000000`; all three LOAD segments inside RAM (RW memsz reaches region top — that's `.bss`+`.stack`, see Changelog DTB note)
+- [x] P2.4 Banner prints; kernel then parks in `loop { wfi }` — *all verified 2026-07-19, log captured*
 
 **Acceptance:** `cargo run` shows `apexos-rv: hart 0 online`; Ctrl-A X exits QEMU.
 
@@ -177,9 +177,10 @@ serde_json = "1"
 target = "riscv64gc-unknown-none-elf"
 
 [target.riscv64gc-unknown-none-elf]
-# memory.x must come BEFORE link.x — link.x consumes MEMORY/REGION_ALIAS from it
-rustflags = ["-C", "link-arg=-Tmemory.x", "-C", "link-arg=-Tlink.x"]
-runner = "qemu-system-riscv64 -machine virt -cpu rv64 -smp 1 -m 128M -bios none -nographic -serial mon:stdio -kernel"
+# riscv-rt 0.18 `memory` feature: generated link.x INCLUDEs memory.x via link-search.
+rustflags = ["-C", "link-arg=-Tlink.x"]
+# -m 256M > memory.x 128M on purpose — QEMU places the DTB above our claimed RAM.
+runner = "qemu-system-riscv64 -machine virt -cpu rv64 -smp 1 -m 256M -bios none -nographic -serial mon:stdio -kernel"
 
 [alias]
 # Host-side testing/checking (agent-core, vendored protocol, xtest). Bare `cargo test`
@@ -196,8 +197,8 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-riscv          = { version = "0.16", features = ["critical-section-single-hart"] }  # verify feature name @ pin
-riscv-rt       = "0.18"
+riscv          = { version = "0.16", features = ["critical-section-single-hart"] }  # feature confirmed @ 0.16.1
+riscv-rt       = { version = "0.18", features = ["memory"] }  # memory: link.x INCLUDEs memory.x
 embedded-alloc = "0.7"
 # Phase 5+:
 # apexos-protocol = { path = "../vendor/apexos-protocol", default-features = false, features = ["alloc"] }
@@ -222,7 +223,7 @@ fn main() {
 }
 ```
 
-**`kernel/memory.x`** — QEMU `virt`, `-bios none` ⇒ we own RAM from its base (length matches the runner's `-m`)
+**`kernel/memory.x`** — QEMU `virt`, `-bios none` ⇒ we own RAM from its base. LENGTH must stay **below** the runner's `-m`: riscv-rt puts `.stack` at the region top, and QEMU needs headroom above the image for the DTB.
 ```text
 MEMORY
 {
@@ -325,7 +326,7 @@ pub fn exit_fail(code: u16) -> ! {
 set -euo pipefail
 ELF="${1:?usage: run-qemu.sh <path-to-elf> [log]}"
 LOG="${2:-/tmp/apexos-rv-uart.log}"
-timeout 30s qemu-system-riscv64 -machine virt -cpu rv64 -smp 1 -m 128M \
+timeout 30s qemu-system-riscv64 -machine virt -cpu rv64 -smp 1 -m 256M \
   -bios none -nographic -serial mon:stdio -kernel "$ELF" | tee "$LOG"
 # timeout kills a hang (exit 124); sifive_test propagates pass/fail otherwise
 grep -q "apexos-rv: hart 0 online" "$LOG"
@@ -358,3 +359,4 @@ Start it in plan mode; on approval, auto mode (or accept-edits) fits the build-f
 - 2026-07-19 — v2: plan re-homed from `metal/`-inside-ApexOS-RS to this standalone repo. Corrections from source review @ `676aa38`: (1) `state.rs` = `SystemState` event-fold, goal lifecycle lives in `goal.rs` → Phase 6 restructured (SYNC-COPY the fold, reimplement driver *semantics*); (2) `Planning`/`Reflecting` unused upstream → scripted walk now mirrors the real `Acting→Done/Blocked/Failed` lifecycle; (3) `.cargo/config.toml` moved to repo root with `default-members` + host aliases (config-discovery trap); (4) versions refreshed (riscv-rt 0.18.0, riscv 0.16.1, embedded-alloc 0.7.0). Root-workspace guardrail replaced by vendoring/provenance discipline. Phase 0 partially complete (P0.1, P0.4).
 - 2026-07-19 — Phase 0 nearly closed (gdb 17.1 ✓; found the Ubuntu `qemu-system-riscv` package split, P0.2 corrected). Added `docs/resources.md` + vendored goal-driver design doc (reference copy); cerebro-cortex continuity conventions added to CLAUDE.md; repo published to GitHub (public).
 - 2026-07-19 — P1: riscv-rt 0.18 linking differs from Appendix A snippets (recorded per rule 6): the `memory` crate feature makes the generated `link.x` INCLUDE our `memory.x` from the link-search path (cortex-m-rt style), so rustflags carry a single `-Tlink.x` — the old "memory.x before link.x" two-flag order is obsolete. `memory.x` symbol contract unchanged (REGION_ALIAS, `_heap_size`, `_max_hart_id` all present in 0.18's link.x.in). First build green; ELF entry `0x80000000` confirmed via readelf (P2.3 pre-verified). `cargo hostcheck` currently exits 101 with a benign "workspace has no members" error (kernel excluded, no host members until P5) — acceptance interpreted accordingly.
+- 2026-07-19 — P2: first boot ✓ — `apexos-rv: hart 0 online` over the NS16550A, then parks in `wfi`. Earned gotcha: riscv-rt links `.stack` to the **top** of memory.x's RAM, so QEMU's `-m` must be *larger* than the claimed region or the DTB has nowhere to go (`No enough memory to place DTB after kernel/initrd`). The v1 draft's 256M/128M "mismatch" was load-bearing; restored deliberately (comments in memory.x + config.toml explain). Appendix A snippets updated to 0.18 reality (single `-Tlink.x`, `memory` feature, `-m 256M`).

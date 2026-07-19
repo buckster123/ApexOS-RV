@@ -5,7 +5,9 @@ target = "riscv64gc-unknown-none-elf"
 # riscv-rt 0.18 `memory` feature: link.x itself INCLUDEs memory.x (found via the
 # link-search paths our build.rs + riscv-rt's build.rs emit) — single -T flag only.
 rustflags = ["-C", "link-arg=-Tlink.x"]
-runner = "qemu-system-riscv64 -machine virt -cpu rv64 -smp 1 -m 128M -bios none -nographic -serial mon:stdio -kernel"
+# -m 256M > memory.x's 128M on purpose: riscv-rt links .stack to the TOP of our
+# claimed region, so QEMU needs physical headroom above it to place the DTB.
+runner = "qemu-system-riscv64 -machine virt -cpu rv64 -smp 1 -m 256M -bios none -nographic -serial mon:stdio -kernel"
 
 [alias]
 # Host-side testing/checking (agent-core, vendored protocol, xtest). Bare `cargo test`

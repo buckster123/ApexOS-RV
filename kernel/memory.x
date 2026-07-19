@@ -1,3 +1,7 @@
+/* LENGTH deliberately < QEMU's -m (256M): riscv-rt places .stack at the top of
+   this region, and QEMU virt needs free physical RAM above the loaded image to
+   place the DTB ("No enough memory to place DTB" otherwise). We own 128M; the
+   DTB lives in the headroom above and v1 never touches it. */
 MEMORY
 {
   RAM : ORIGIN = 0x80000000, LENGTH = 128M
