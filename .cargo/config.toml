@@ -1,0 +1,14 @@
+[build]
+target = "riscv64gc-unknown-none-elf"
+
+[target.riscv64gc-unknown-none-elf]
+# riscv-rt 0.18 `memory` feature: link.x itself INCLUDEs memory.x (found via the
+# link-search paths our build.rs + riscv-rt's build.rs emit) — single -T flag only.
+rustflags = ["-C", "link-arg=-Tlink.x"]
+runner = "qemu-system-riscv64 -machine virt -cpu rv64 -smp 1 -m 128M -bios none -nographic -serial mon:stdio -kernel"
+
+[alias]
+# Host-side testing/checking (agent-core, vendored protocol, xtest). Bare `cargo test`
+# would cross-compile for RISC-V and fail — use these. Host triple is this box's.
+hosttest  = "test  --workspace --exclude apexos-rv-kernel --target x86_64-unknown-linux-gnu"
+hostcheck = "check --workspace --exclude apexos-rv-kernel --target x86_64-unknown-linux-gnu"
