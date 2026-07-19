@@ -38,13 +38,13 @@ pub type Map<K, V> = BTreeMap<K, V>;
 
 // ── ID newtypes (cheap, copyable, type-safe) ───────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct SessionId(pub u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ActionId(pub u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct GoalId(pub u64);
 
 /// Lifecycle state of an autonomous Goal run (docs/ideas/goal-driver-design.md).
@@ -63,7 +63,7 @@ pub enum GoalState {
     Cancelled,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct PluginId(pub String);
 
 impl fmt::Display for PluginId {
@@ -72,7 +72,7 @@ impl fmt::Display for PluginId {
 
 // ── Evolution types ──────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct EvolutionId(pub u64);
 
 /// Policy mode — lives here so EvolutionProposal (also in core) can reference
