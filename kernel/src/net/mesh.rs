@@ -30,6 +30,32 @@ const LOCAL_PORT: u16 = 49153;
 const ESTABLISH_TIMEOUT: u64 = 10 * time::TICKS_PER_SEC;
 /// Optional build-time bearer token for the live colony (`APEXRV_TOKEN=… cargo build`).
 const TOKEN: Option<&str> = option_env!("APEXRV_TOKEN");
+/// Build-time gateway override for the live demo (defaults = the mock world).
+const GATEWAY_HOST: &str = match option_env!("APEXRV_GATEWAY_IP") {
+    Some(s) => s,
+    None => "10.0.2.2",
+};
+
+fn gateway_addr() -> (Ipv4Address, u16) {
+    let ip = match option_env!("APEXRV_GATEWAY_IP") {
+        Some(s) => {
+            let mut o = [0u8; 4];
+            let mut it = s.split('.');
+            for slot in &mut o {
+                *slot = it
+                    .next()
+                    .and_then(|p| p.parse().ok())
+                    .expect("APEXRV_GATEWAY_IP: dotted quad");
+            }
+            Ipv4Address::new(o[0], o[1], o[2], o[3])
+        }
+        None => Ipv4Address::new(10, 0, 2, 2),
+    };
+    let port = option_env!("APEXRV_GATEWAY_PORT")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(GATEWAY_PORT);
+    (ip, port)
+}
 
 fn now() -> Instant {
     Instant::from_millis((time::mtime() / (time::TICKS_PER_SEC / 1000)) as i64)
@@ -77,12 +103,17 @@ pub struct Mesh {
     ws: WebSocketClient<DetRng>,
     /// TCP bytes received but not yet consumed by the ws decoder.
     rx_raw: Vec<u8>,
+    /// Partial text message accumulated across fragmented ws frames.
+    msg_partial: Vec<u8>,
     pub session_id: u64,
 }
 
 impl Mesh {
     /// TCP connect → ws upgrade → first `session_init`. Panics on failure.
-    pub fn establish(nic: Nic, port: u16) -> Mesh {
+    /// The gateway address comes from the D12 defaults or the build-time
+    /// `APEXRV_GATEWAY_IP`/`APEXRV_GATEWAY_PORT` overrides (live demo).
+    pub fn establish(nic: Nic) -> Mesh {
+        let (gw_ip, gw_port) = gateway_addr();
         let mut dev = SmolNic::new(nic);
         let mut config = Config::new(HardwareAddress::Ethernet(EthernetAddress(MAC)));
         config.random_seed = 0xA9E0_5117; // deterministic ISNs (D12)
@@ -102,7 +133,7 @@ impl Mesh {
         ));
         sockets
             .get_mut::<tcp::Socket>(handle)
-            .connect(iface.context(), (IpAddress::v4(10, 0, 2, 2), port), LOCAL_PORT)
+            .connect(iface.context(), (IpAddress::Ipv4(gw_ip), gw_port), LOCAL_PORT)
             .expect("mesh: tcp connect setup");
 
         let mut ws = WebSocketClient::new_client(DetRng::new(0x5EED_CAFE_D00D));
@@ -117,7 +148,7 @@ impl Mesh {
         };
         let opts = WebSocketOptions {
             path: "/ws",
-            host: "10.0.2.2",
+            host: GATEWAY_HOST,
             origin: "",
             sub_protocols: None,
             additional_headers: extra_headers,
@@ -125,7 +156,16 @@ impl Mesh {
         let mut hs = vec![0u8; 2048];
         let (len, key) = ws.client_connect(&opts, &mut hs).expect("mesh: build upgrade");
 
-        let mut mesh = Mesh { dev, iface, sockets, handle, ws, rx_raw: Vec::new(), session_id: 0 };
+        let mut mesh = Mesh {
+            dev,
+            iface,
+            sockets,
+            handle,
+            ws,
+            rx_raw: Vec::new(),
+            msg_partial: Vec::new(),
+            session_id: 0,
+        };
         let upgrade = hs[..len].to_vec();
         mesh.blocking_send_raw(&upgrade);
 
@@ -200,48 +240,57 @@ impl Mesh {
         self.blocking_send_raw(&framed);
     }
 
-    /// Block until the next complete ws text message (answers pings en route).
-    pub fn next_text(&mut self, deadline: u64) -> String {
-        let mut msg: Vec<u8> = Vec::new();
+    /// Non-blocking: pump once and return the next complete ws text message if
+    /// one is decodable now (answers pings en route; accumulates fragments in
+    /// `msg_partial` across calls).
+    pub fn try_next_text(&mut self) -> Option<String> {
+        self.pump();
         let mut frame = vec![0u8; 4096];
-        loop {
-            self.pump();
-            if !self.rx_raw.is_empty() {
-                match self.ws.read(&self.rx_raw, &mut frame) {
-                    Ok(r) => {
-                        self.rx_raw.drain(..r.len_from);
-                        match r.message_type {
-                            WebSocketReceiveMessageType::Text => {
-                                msg.extend_from_slice(&frame[..r.len_to]);
-                                if r.end_of_message {
-                                    return String::from_utf8(msg).expect("mesh: utf8");
-                                }
+        while !self.rx_raw.is_empty() {
+            match self.ws.read(&self.rx_raw, &mut frame) {
+                Ok(r) => {
+                    self.rx_raw.drain(..r.len_from);
+                    match r.message_type {
+                        WebSocketReceiveMessageType::Text => {
+                            self.msg_partial.extend_from_slice(&frame[..r.len_to]);
+                            if r.end_of_message {
+                                let msg = core::mem::take(&mut self.msg_partial);
+                                return Some(String::from_utf8(msg).expect("mesh: utf8"));
                             }
-                            WebSocketReceiveMessageType::Ping => {
-                                let mut pong = vec![0u8; r.len_to + 16];
-                                let n = self
-                                    .ws
-                                    .write(
-                                        WebSocketSendMessageType::Pong,
-                                        true,
-                                        &frame[..r.len_to],
-                                        &mut pong,
-                                    )
-                                    .expect("mesh: pong");
-                                let reply = pong[..n].to_vec();
-                                self.blocking_send_raw(&reply);
-                            }
-                            WebSocketReceiveMessageType::CloseMustReply
-                            | WebSocketReceiveMessageType::CloseCompleted => {
-                                panic!("mesh: peer closed while a message was awaited")
-                            }
-                            _ => {} // Binary/Pong: ignored in v2
                         }
-                        continue;
+                        WebSocketReceiveMessageType::Ping => {
+                            let mut pong = vec![0u8; r.len_to + 16];
+                            let n = self
+                                .ws
+                                .write(
+                                    WebSocketSendMessageType::Pong,
+                                    true,
+                                    &frame[..r.len_to],
+                                    &mut pong,
+                                )
+                                .expect("mesh: pong");
+                            let reply = pong[..n].to_vec();
+                            self.blocking_send_raw(&reply);
+                        }
+                        WebSocketReceiveMessageType::CloseMustReply
+                        | WebSocketReceiveMessageType::CloseCompleted => {
+                            panic!("mesh: peer closed mid-session")
+                        }
+                        _ => {} // Binary/Pong: ignored in v2
                     }
-                    Err(WsError::ReadFrameIncomplete) => {}
-                    Err(e) => panic!("mesh: ws read: {e:?}"),
                 }
+                Err(WsError::ReadFrameIncomplete) => return None,
+                Err(e) => panic!("mesh: ws read: {e:?}"),
+            }
+        }
+        None
+    }
+
+    /// Block until the next complete ws text message.
+    pub fn next_text(&mut self, deadline: u64) -> String {
+        loop {
+            if let Some(msg) = self.try_next_text() {
+                return msg;
             }
             self.idle_tick(deadline, "awaiting ws frame");
         }
@@ -283,8 +332,70 @@ impl Mesh {
 #[cfg(feature = "mesh-smoke")]
 pub fn smoke(nic: Option<Nic>) -> ! {
     let nic = nic.expect("mesh-smoke requires the NIC");
-    let mut mesh = Mesh::establish(nic, GATEWAY_PORT);
+    let mut mesh = Mesh::establish(nic);
     println!("mesh: session {} established", mesh.session_id);
     mesh.close_clean();
     crate::qemu::exit_pass()
+}
+
+// ── P12: MeshInference — goal turns over the gateway wire ────────────────────
+
+/// Each goal step is one gateway turn: `user_prompt` out (the D14 directive),
+/// `agent_text` deltas accumulate, `turn_complete` yields the verdict via the
+/// trailing `GOAL_STEP:` line (absent → `Continue(None)`, upstream's default).
+/// While the turn is in flight `next` returns `Pending` — the P7 mtime
+/// watchdog guards the wire.
+#[cfg(feature = "mesh-goal")]
+pub struct MeshInference {
+    mesh: Mesh,
+    reply: String,
+    in_flight: bool,
+}
+
+#[cfg(feature = "mesh-goal")]
+impl MeshInference {
+    pub fn new(mesh: Mesh) -> Self {
+        Self { mesh, reply: String::new(), in_flight: false }
+    }
+
+    /// Hand the session back (for a clean close after the goal ends).
+    pub fn finish(self) -> Mesh {
+        self.mesh
+    }
+}
+
+#[cfg(feature = "mesh-goal")]
+impl apexos_rv_agent_core::Inference for MeshInference {
+    fn next(
+        &mut self,
+        ctx: &apexos_rv_agent_core::TickContext<'_>,
+    ) -> apexos_rv_agent_core::TurnResult {
+        use apexos_rv_agent_core::gateway::ClientFrame;
+        use apexos_rv_agent_core::{goal, TurnResult, Verdict};
+
+        if !self.in_flight {
+            let frame = ClientFrame::UserPrompt { text: goal::step_directive(ctx) };
+            let json = serde_json::to_string(&frame).expect("mesh: frame serialize");
+            self.mesh.send_text(&json);
+            self.in_flight = true;
+            self.reply.clear();
+            return TurnResult::Pending;
+        }
+        while let Some(text) = self.mesh.try_next_text() {
+            match serde_json::from_str::<apexos_protocol::Event>(&text) {
+                Ok(apexos_protocol::Event::AgentText { delta, .. }) => {
+                    self.reply.push_str(&delta);
+                }
+                Ok(apexos_protocol::Event::TurnComplete { .. }) => {
+                    self.in_flight = false;
+                    let verdict =
+                        goal::parse_goal_step(&self.reply).unwrap_or(Verdict::Continue(None));
+                    return TurnResult::Completed(verdict);
+                }
+                Ok(_) => {}  // other session/global events: ignored in v2
+                Err(_) => {} // control frames (e.g. a re-pushed session_init)
+            }
+        }
+        TurnResult::Pending
+    }
 }

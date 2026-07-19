@@ -18,6 +18,15 @@ pub enum GatewayControl {
     },
 }
 
+/// Client → gateway conversation frames. `UserPrompt` deliberately carries
+/// only `text`: the gateway injects `session` into every inbound frame before
+/// deserializing, and the metal node sends no images.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ClientFrame {
+    UserPrompt { text: String },
+}
+
 /// Client → gateway session control.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -45,6 +54,15 @@ mod tests {
             serde_json::from_str(s).unwrap();
         assert_eq!(session_id, 42);
         assert!(history.as_array().is_some_and(|a| a.is_empty()));
+    }
+
+    #[test]
+    fn user_prompt_omits_session_and_images() {
+        let f = ClientFrame::UserPrompt { text: "step 1".into() };
+        let v = serde_json::to_value(&f).unwrap();
+        assert_eq!(v, serde_json::json!({"type": "user_prompt", "text": "step 1"}));
+        assert!(v.get("session").is_none(), "the gateway injects session");
+        assert!(v.get("images").is_none());
     }
 
     #[test]

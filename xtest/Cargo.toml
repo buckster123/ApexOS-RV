@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 # mockd bin (the mesh-gate peer, D13) — host-only, never built for the target.
 tungstenite = "0.30"
+serde_json  = "1"
 
 [dev-dependencies]
 serde_json = "1"

@@ -261,6 +261,61 @@ pub const SCRIPT_STALL: &[ScriptStep] = &[ScriptStep::Continue, ScriptStep::Stal
 /// must stall it. The honest, time-measured negative path.
 pub const SCRIPT_HANG: &[ScriptStep] = &[ScriptStep::Continue, ScriptStep::Pending];
 
+// ── Mesh directives & verdicts (P12, PRD v2 D14) ─────────────────────────────
+
+/// Build the turn prompt for one goal step: objective, budget position, steer,
+/// and the verdict convention. The daemon-side `goal_step` tool isn't reachable
+/// from a frontend session, so the model reports its verdict in-band.
+pub fn step_directive(ctx: &TickContext<'_>) -> String {
+    use alloc::format;
+    let mut d = format!(
+        "[apexos-rv goal driver — step {}/{}] Objective: {}\n\
+         You are executing one bounded step of this goal on a bare-metal RISC-V \
+         node. Do this step's work in your reply.",
+        ctx.step, ctx.max_steps, ctx.objective
+    );
+    if let Some(s) = ctx.steer {
+        d.push_str("\nSteer from the previous step: ");
+        d.push_str(s);
+    }
+    d.push_str(
+        "\nEnd your reply with exactly one line:\n\
+         GOAL_STEP: continue <optional steer for the next step> | done | blocked <reason>",
+    );
+    d
+}
+
+/// Scan a completed turn's text for the trailing `GOAL_STEP:` verdict line.
+/// `None` (absent or unrecognized status) means the caller applies upstream's
+/// default, `Continue(None)` — exactly `parse_verdict`'s unknown-status rule.
+pub fn parse_goal_step(reply: &str) -> Option<Verdict> {
+    for line in reply.lines().rev() {
+        let Some(rest) = line.trim().strip_prefix("GOAL_STEP:") else {
+            continue;
+        };
+        let rest = rest.trim();
+        let (word, tail) = match rest.split_once(char::is_whitespace) {
+            Some((w, t)) => (w, t.trim()),
+            None => (rest, ""),
+        };
+        return match word {
+            "done" => Some(Verdict::Done),
+            "blocked" => Some(Verdict::Blocked(String::from(if tail.is_empty() {
+                "blocked"
+            } else {
+                tail
+            }))),
+            "continue" => Some(Verdict::Continue(if tail.is_empty() {
+                None
+            } else {
+                Some(String::from(tail))
+            })),
+            _ => None,
+        };
+    }
+    None
+}
+
 // ── Host tests (P6.6): one per FR-8 behavior ─────────────────────────────────
 
 #[cfg(test)]
@@ -443,6 +498,48 @@ mod tests {
             driver.poll(&mut probe, &mut sink);
         }
         assert_eq!(driver.state(), GoalState::Done);
+    }
+
+    #[test]
+    fn step_directive_carries_objective_budget_steer_and_convention() {
+        let ctx = TickContext {
+            goal: GoalId(1),
+            objective: "map the sensor field",
+            step: 3,
+            max_steps: 8,
+            steer: Some("focus the thermal array"),
+        };
+        let d = step_directive(&ctx);
+        assert!(d.contains("step 3/8"));
+        assert!(d.contains("map the sensor field"));
+        assert!(d.contains("focus the thermal array"));
+        assert!(d.contains("GOAL_STEP:"));
+    }
+
+    #[test]
+    fn parse_goal_step_covers_the_verdict_grammar() {
+        assert!(matches!(parse_goal_step("work...\nGOAL_STEP: done"), Some(Verdict::Done)));
+        assert!(matches!(
+            parse_goal_step("GOAL_STEP: blocked waiting on operator"),
+            Some(Verdict::Blocked(r)) if r == "waiting on operator"
+        ));
+        assert!(matches!(
+            parse_goal_step("GOAL_STEP: continue check the CLINT next"),
+            Some(Verdict::Continue(Some(s))) if s == "check the CLINT next"
+        ));
+        assert!(matches!(
+            parse_goal_step("text\nGOAL_STEP: continue"),
+            Some(Verdict::Continue(None))
+        ));
+        // Unknown status and absent line → None → caller's Continue(None),
+        // mirroring upstream parse_verdict's unknown-status rule.
+        assert!(parse_goal_step("GOAL_STEP: interpretive_dance").is_none());
+        assert!(parse_goal_step("no verdict anywhere").is_none());
+        // The trailing line wins when a reply quotes the convention.
+        assert!(matches!(
+            parse_goal_step("GOAL_STEP: done\n...quoting docs...\nGOAL_STEP: continue"),
+            Some(Verdict::Continue(None))
+        ));
     }
 
     #[test]

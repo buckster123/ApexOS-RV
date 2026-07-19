@@ -14,7 +14,7 @@ use crate::println;
 
 pub mod smol;
 
-#[cfg(feature = "mesh-smoke")]
+#[cfg(any(feature = "mesh-smoke", feature = "mesh-goal"))]
 pub mod mesh;
 
 #[cfg(feature = "net-smoke")]

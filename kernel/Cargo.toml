@@ -24,3 +24,4 @@ tiny-heap   = []   # P4 negative gate: 1 KiB heap → OOM must panic readably
 fail-script = []
 net-smoke   = []   # P10 gate: TCP echo against the host mock, then exit
 mesh-smoke  = []   # P11 gate: ws handshake + session_init against the mock, then exit
+mesh-goal   = []   # P12: the goal's turns run over the gateway wire (mock or live)

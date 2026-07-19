@@ -29,11 +29,11 @@ fn main() -> ! {
     net::mesh::smoke(_nic);
 
     #[cfg(not(any(feature = "net-smoke", feature = "mesh-smoke")))]
-    normal_flow()
+    normal_flow(_nic)
 }
 
 #[cfg(not(any(feature = "net-smoke", feature = "mesh-smoke")))]
-fn normal_flow() -> ! {
+fn normal_flow(nic: Option<net::Nic>) -> ! {
     // P4.3 alloc smoke: format! → Vec → print → drop (deterministic output).
     {
         let s = alloc::format!("alloc ok: {}", 42);
@@ -54,13 +54,16 @@ fn normal_flow() -> ! {
 
     // P3.5 negative-path proof — inert without the feature (cfg-gated = disabled).
     #[cfg(feature = "panic-test")]
-    panic!("panic-test: intentional panic to prove the reporting path");
+    {
+        let _ = nic;
+        panic!("panic-test: intentional panic to prove the reporting path");
+    }
 
     // P6 — colony state fold (asserted) + the scripted goal run, narrated in
     // protocol events; the goal's terminal state decides the exit code.
     #[cfg(not(feature = "panic-test"))]
     {
-        if agent::run() {
+        if agent::run(nic) {
             qemu::exit_pass()
         } else {
             qemu::exit_fail(2)
