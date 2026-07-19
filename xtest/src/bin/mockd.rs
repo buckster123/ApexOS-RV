@@ -13,11 +13,35 @@ fn main() {
         .unwrap_or(9601);
     match mode.as_str() {
         "echo" => echo(port),
+        "ws" => ws(port),
         other => {
             eprintln!("mockd: unknown mode {other}");
             std::process::exit(2);
         }
     }
+}
+
+/// One connection; speak the gateway contract's opening: accept the upgrade,
+/// push `session_init` (the gateway talks first), then serve until close.
+fn ws(port: u16) {
+    let listener = TcpListener::bind(("127.0.0.1", port)).expect("mockd bind");
+    println!("mockd: ws listening on {port}");
+    let (stream, peer) = listener.accept().expect("mockd accept");
+    println!("mockd: peer {peer}");
+    let mut sock = tungstenite::accept(stream).expect("mockd ws accept");
+    sock.send(tungstenite::Message::Text(
+        r#"{"type": "session_init", "session_id": 42, "history": []}"#.into(),
+    ))
+    .expect("mockd send session_init");
+    println!("mockd: session_init sent");
+    loop {
+        match sock.read() {
+            Ok(m) if m.is_close() => break,
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+    println!("mockd: connection closed");
 }
 
 /// One connection; echo bytes until the peer closes.

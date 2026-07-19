@@ -24,11 +24,15 @@ fn main() -> ! {
     #[cfg(feature = "net-smoke")]
     net::smoke::run(_nic);
 
-    #[cfg(not(feature = "net-smoke"))]
+    // P11 mesh-smoke gate: ws handshake + session_init — diverges.
+    #[cfg(feature = "mesh-smoke")]
+    net::mesh::smoke(_nic);
+
+    #[cfg(not(any(feature = "net-smoke", feature = "mesh-smoke")))]
     normal_flow()
 }
 
-#[cfg(not(feature = "net-smoke"))]
+#[cfg(not(any(feature = "net-smoke", feature = "mesh-smoke")))]
 fn normal_flow() -> ! {
     // P4.3 alloc smoke: format! → Vec → print → drop (deterministic output).
     {
