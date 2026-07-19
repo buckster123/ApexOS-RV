@@ -188,6 +188,8 @@ No mDNS/peer discovery (configured gateway address only), no TLS (LAN plaintext 
 
 `cargo hosttest` green including mock-gateway tests; the mocked mesh run walks a 3-step goal to `Done` deterministically (byte-identical two-run diff) and the silent-mock run fails by *timeout* with upstream's stall detail; `scripts/run-live.sh` (gateway URL + token via env) documented with a captured live-colony transcript checked into `docs/` as evidence, marked non-normative.
 
+**Met 2026-07-19 (v2.0.0).** All mock gates green (46 host tests; llm run byte-identical; silent run stalled by the watchdog over a real socket). Two live transcripts in `docs/`: session 28 — APEX's genuine `blocked` verdict, issued through the very substrate it declared missing (the Blocked path's first unscripted exercise) — and session 29 — the context-bearing objective, acknowledged and finished `done` on step 1. The colony's inference drove a goal on bare metal over the documented contract, with zero upstream changes.
+
 ## 15. Future work (explicitly post-v2)
 
 Full a2a mesh membership beyond the client role (mDNS discovery, peers.toml presence, sensor-bridge feed); multi-hart with a real `critical-section` impl; timer interrupts (CLINT) + preemptive scheduling or embassy; S-mode/OpenSBI path; persona port; **real-board bring-up on the inbound hardware** (likely JH7110/VisionFive-2 or Milk-V class — RVA23-profile silicon is arriving industry-wide); upstream PRs to ApexOS-RS (the `no_std` protocol gate, an `apexos-state` crate extraction so `state.rs` stops being a copy, a `docs/repo-map.md` pointer to this repo); `no_std` subset of `apexos-confine` semantics if metal ever gets storage.

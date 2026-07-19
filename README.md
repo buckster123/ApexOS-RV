@@ -2,7 +2,7 @@
 
 **A bare-metal RISC-V node class for the [ApexOS](https://github.com/buckster123/ApexOS-RS) colony** — a `#![no_std]` Rust kernel for `riscv64gc-unknown-none-elf` where the agent runtime *is* the firmware: no Linux, no libc. It boots on QEMU `virt` in milliseconds, speaks the colony's `apexos-protocol` wire contract natively, folds events through the colony's own `SystemState`, and drives the goal lifecycle with upstream's exact semantics ("LLM-proposes / code-disposes") against scripted inference — the mesh client comes post-v1.
 
-**Status: v1.0.0 — all eight phases gated.** [`PLAN.md`](PLAN.md) has the evidence-annotated checklists, [`PRD.md`](PRD.md) the full intent, [`CLAUDE.md`](CLAUDE.md) the working rules, [`BACKLOG.md`](BACKLOG.md) what v1 said no to.
+**Status: v2.0.0 — the mesh arc is live.** The kernel joins a real agentd gateway as a WebSocket client (virtio-net → smoltcp → RFC 6455, polled, zero interrupts) and runs its goal loop against **live colony inference**: each step is a `user_prompt` → `agent_text` → `turn_complete` round trip, verdicts in-band. In the first live contact the colony's LLM *blocked* the goal — declaring "no RISC-V substrate exists" through the very substrate serving it the socket (`docs/live-run-2026-07-19.log`); told who was calling, it verified the link and finished `done` (`…-encore.log`). [`PLAN.md`](PLAN.md) has the evidence-annotated checklists, [`PRD.md`](PRD.md) the intent, [`CLAUDE.md`](CLAUDE.md) the working rules, [`BACKLOG.md`](BACKLOG.md) what shipped said no to.
 
 ```bash
 # prerequisites: rustup + qemu (Ubuntu ≥25.10: qemu-system-riscv; older: qemu-system-misc)
