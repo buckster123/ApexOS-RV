@@ -1,5 +1,5 @@
 [workspace]
-members         = ["kernel", "agent-core", "vendor/apexos-protocol"]   # + "xtest" (P8)
+members         = ["kernel", "agent-core", "vendor/apexos-protocol", "xtest"]
 default-members = ["kernel"]
 resolver        = "2"
 

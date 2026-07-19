@@ -1,0 +1,10 @@
+[package]
+name = "apexos-rv-xtest"
+version.workspace = true
+edition.workspace = true
+
+[dev-dependencies]
+serde_json = "1"
+# The PRISTINE upstream crate at the audited pin — deliberately NOT the vendored
+# copy. Metal's output must parse with the daemon's own types, across repos.
+upstream-protocol = { package = "apexos-protocol", git = "https://github.com/buckster123/ApexOS-RS.git", rev = "676aa3870ad7e2b469be1dcaec23498c943491a9" }

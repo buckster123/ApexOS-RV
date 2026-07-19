@@ -152,7 +152,7 @@ No networking (⇒ no live LLM calls, no mesh join), no MMU / S-mode / user-spac
 
 1. Board target for post-v1 hardware bring-up — **hardware is already on the way here**; pin down the exact model when it lands (affects nothing in v1, QEMU `virt` only).
 2. `ScriptedInference` transcripts as Rust consts or embedded JSON assets? (Lean: consts for v1.)
-3. When to open the upstream PR offering the `no_std` feature gate to ApexOS-RS: after M5 (patch proven in-kernel) or after M7 (full story with the cross-repo test as evidence)? (Lean: after M7 — the xtest result *is* the PR's proof.)
+3. When to open the upstream PR offering the `no_std` feature gate to ApexOS-RS: after M5 (patch proven in-kernel) or after M7 (full story with the cross-repo test as evidence)? (Lean: after M7 — the xtest result *is* the PR's proof.) — **Resolved at v1 (2026-07-19): after M7, as leaned; the patch grew a second improvement en route (`Ord` on ID newtypes) and the green xtest run is the PR's evidence. Filed in BACKLOG §Upstream.**
 
 ## 13. Definition of done (v1)
 

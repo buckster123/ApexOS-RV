@@ -1,0 +1,17 @@
+apexos-rv: hart 0 online
+alloc ok: 42 (heap: 1024 KiB)
+{"type":"sensor_reading","node_id":"rv-metal-0","reading":{"kind":"air_quality","iaq":51.5,"co2_eq_ppm":407.0,"voc_ppm":0.5,"accuracy":3,"temperature_c":22.5,"humidity_pct":40.25,"pressure_hpa":1013.25,"sensor_id":"bme688"},"timestamp":1777000000}
+{"type":"vast_instance_launched","instance_id":"vast-31337","recipe":"qwen3-30b-a3b","cost_per_hr":0.297}
+{"type":"tool_requested","session":1,"call":{"id":7,"tool":"cerebro.recall","args":{"k":3,"query":"hart 0 online"},"needs_approval":false}}
+proto: 3 events round-tripped on metal
+{"type":"user_prompt","session":1,"text":"bring the colony contract to metal","images":[]}
+{"type":"plugin_up","plugin":"cerebro","tools":[{"name":"cerebro.recall","description":"recall memories","input_schema":{}},{"name":"cerebro.store","description":"store a memory","input_schema":{}}]}
+{"type":"approval_pending","session":1,"call":{"id":7,"tool":"cerebro.store","args":{"content":"hart 0 online"},"needs_approval":true}}
+{"type":"user_approval","session":1,"action":7,"granted":true}
+state: fold ok — sessions=1 tools=2 approvals=0
+{"type":"goal_state_changed","goal":1,"objective":"prove the colony contract end-to-end on bare metal","state":"acting","step":1,"max_steps":8,"detail":"","yolo":false}
+{"type":"goal_state_changed","goal":1,"objective":"prove the colony contract end-to-end on bare metal","state":"acting","step":2,"max_steps":8,"detail":"","yolo":false}
+{"type":"goal_state_changed","goal":1,"objective":"prove the colony contract end-to-end on bare metal","state":"acting","step":3,"max_steps":8,"detail":"","yolo":false}
+{"type":"goal_state_changed","goal":1,"objective":"prove the colony contract end-to-end on bare metal","state":"done","step":3,"max_steps":8,"detail":"","yolo":false}
+loop: goal reached Done in 3 polls
+APEXOS-RV: goal done — halting

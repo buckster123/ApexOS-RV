@@ -11,10 +11,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "apexos-protocol"
+version = "0.1.0"
+source = "git+https://github.com/buckster123/ApexOS-RS.git?rev=676aa3870ad7e2b469be1dcaec23498c943491a9#676aa3870ad7e2b469be1dcaec23498c943491a9"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "apexos-rv-agent-core"
 version = "0.1.0"
 dependencies = [
- "apexos-protocol",
+ "apexos-protocol 0.1.0",
  "serde_json",
 ]
 
@@ -22,12 +31,20 @@ dependencies = [
 name = "apexos-rv-kernel"
 version = "0.1.0"
 dependencies = [
- "apexos-protocol",
+ "apexos-protocol 0.1.0",
  "apexos-rv-agent-core",
  "critical-section",
  "embedded-alloc",
  "riscv",
  "riscv-rt",
+ "serde_json",
+]
+
+[[package]]
+name = "apexos-rv-xtest"
+version = "0.1.0"
+dependencies = [
+ "apexos-protocol 0.1.0 (git+https://github.com/buckster123/ApexOS-RS.git?rev=676aa3870ad7e2b469be1dcaec23498c943491a9)",
  "serde_json",
 ]
 

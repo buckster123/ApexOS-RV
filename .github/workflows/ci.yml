@@ -1,0 +1,25 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # rust-toolchain.toml pins the channel + auto-installs the riscv target
+      - run: rustup show || rustup toolchain install
+      - run: cargo hosttest
+
+  metal-boot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Ubuntu ≥25.10 ships riscv64 as qemu-system-riscv; older LTS keeps it in
+      # qemu-system-misc — try the split package first, fall back to misc.
+      - run: sudo apt-get update && (sudo apt-get install -y qemu-system-riscv || sudo apt-get install -y qemu-system-misc)
+      - run: rustup show || rustup toolchain install
+      - run: cargo build --release
+      - run: ./scripts/run-qemu.sh target/riscv64gc-unknown-none-elf/release/apexos-rv-kernel
