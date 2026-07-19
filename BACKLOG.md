@@ -7,7 +7,8 @@ Ideas parked deliberately so v1 could say no (PRD §5/§14). Promotion into PLAN
 - Wire-path hardening on ingest: the vendored redteam suite already pins "no frame can panic the decoder"; keep it load-bearing when frames arrive from the network instead of a script
 
 ## Hardware
-- Real-board bring-up on the incoming RISC-V hardware (model TBD when it lands) — the UART divisor-init breadcrumb in `uart.rs` and `cargo-binutils`/`objcopy -O binary` are the entry points
+- **First boards chosen (2026-07-19, André + APEX via occipital): Milk-V or StarFive class** — exact model IDs pending market availability. Entry points: the UART divisor-init breadcrumb in `uart.rs`, `cargo-binutils`/`objcopy -O binary`, a per-board `memory.x`
+- **The minimum-viable-substrate challenge:** how small a RISC-V device can run the agent loop? Vanilla Linux floored colony nodes at Pi-Zero-2W/512 MB; this is firmware — a static image with a 1 MiB default heap. Waypoints: measure the real RAM floor on rv64 (shrink heap + net buffers), then rv32 (`riscv32imc`-class — ESP32-C3/CH32V territory; protocol and agent-core are alloc-clean, the HAL is the port), then find the smallest thing that can hold a goal state machine
 - RVA23 / vector exploration once target silicon supports it
 
 ## Kernel
@@ -22,6 +23,6 @@ Ideas parked deliberately so v1 could say no (PRD §5/§14). Promotion into PLAN
 - Multi-goal scheduling; a `goals.json`-equivalent persistence story
 
 ## Upstream PRs to ApexOS-RS
-- The `no_std` feature gate + `Ord` derives on ID newtypes — `vendor/apexos-protocol/UPSTREAM.md` ledger is the diff; the `xtest` cross-repo run is the proof
+- ~~The `no_std` feature gate + `Ord` derives on ID newtypes~~ — **MERGED upstream 2026-07-19** (landed by the ApexOS-RS session; features block confirmed on `main` @ `f4b67b4`). Follow-up here: **bump the pin past the merge, re-vendor pristine (the local patch ledger empties), re-run xtest at the new pin**
 - `apexos-state` crate extraction so `agent-core/src/state.rs` stops being a SYNC-COPY
 - `docs/repo-map.md` pointer from ApexOS-RS to this repo
