@@ -1,24 +1,25 @@
 #![no_std]
 #![no_main]
 
-use riscv_rt::entry;
+pub mod qemu;
+pub mod uart;
 
-const UART0: *mut u8 = 0x1000_0000 as *mut u8; // NS16550A THR on QEMU virt
+use riscv_rt::entry;
 
 #[entry]
 fn main() -> ! {
-    // P2.1 crude poke — the real driver with LSR polling lands in Phase 3.
-    for &b in b"apexos-rv: hart 0 online\r\n" {
-        // SAFETY: QEMU-virt NS16550A THR MMIO; byte-wide volatile store is the
-        // device contract. No LSR poll yet: QEMU's THR never stalls (P3 adds it).
-        unsafe { UART0.write_volatile(b) };
-    }
-    loop {
-        riscv::asm::wfi();
-    }
+    println!("apexos-rv: hart 0 online");
+
+    // P3.5 negative-path proof — inert without the feature (cfg-gated = disabled).
+    #[cfg(feature = "panic-test")]
+    panic!("panic-test: intentional panic to prove the reporting path");
+
+    #[cfg(not(feature = "panic-test"))]
+    qemu::exit_pass()
 }
 
 #[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    loop {}
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    println!("KERNEL PANIC: {info}");
+    qemu::exit_fail(1)
 }
