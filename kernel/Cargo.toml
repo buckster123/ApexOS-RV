@@ -13,6 +13,7 @@ embedded-alloc   = { version = "0.7", default-features = false, features = ["llf
 apexos-protocol  = { path = "../vendor/apexos-protocol", default-features = false, features = ["alloc"] }
 serde_json       = { version = "1", default-features = false, features = ["alloc"] }
 apexos-rv-agent-core = { path = "../agent-core" }
+virtio-drivers = "0.13"
 
 [features]
 panic-test  = []

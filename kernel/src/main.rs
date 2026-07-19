@@ -5,6 +5,7 @@ extern crate alloc;
 
 pub mod agent;
 pub mod heap;
+pub mod net;
 pub mod proto;
 pub mod qemu;
 pub mod time;
@@ -17,6 +18,7 @@ fn main() -> ! {
     println!("apexos-rv: hart 0 online");
     heap::init();
     time::init();
+    let _nic = net::init(); // P9: banner + device held alive; P10 threads it into the loop
 
     // P4.3 alloc smoke: format! → Vec → print → drop (deterministic output).
     {

@@ -7,7 +7,7 @@ target = "riscv64gc-unknown-none-elf"
 rustflags = ["-C", "link-arg=-Tlink.x"]
 # -m 256M > memory.x's 128M on purpose: riscv-rt links .stack to the TOP of our
 # claimed region, so QEMU needs physical headroom above it to place the DTB.
-runner = "qemu-system-riscv64 -machine virt -cpu rv64 -smp 1 -m 256M -bios none -nographic -serial mon:stdio -kernel"
+runner = "qemu-system-riscv64 -machine virt -cpu rv64 -smp 1 -m 256M -bios none -nographic -serial mon:stdio -global virtio-mmio.force-legacy=false -netdev user,id=n0 -device virtio-net-device,netdev=n0,mac=52:54:00:0b:ee:f1 -kernel"
 
 [alias]
 # Host-side testing/checking (agent-core, vendored protocol, xtest). Bare `cargo test`
