@@ -158,6 +158,36 @@ No networking (⇒ no live LLM calls, no mesh join), no MMU / S-mode / user-spac
 
 `git clone https://github.com/buckster123/ApexOS-RV && cargo run --release` on a fresh Ubuntu box with the Phase-0 prerequisites boots the kernel in QEMU, streams a deterministic sequence of protocol events over serial while a scripted goal walks `Acting 1/n → … → Done`, prints `APEXOS-RV: goal done — halting`, and exits 0 — and `cargo hosttest` deserializes that captured stream with the **unmodified upstream** `apexos-protocol` (git dependency @ pin). Byte-identical UART logs across two consecutive runs. Docs: PLAN checklists complete, README + BACKLOG updated.
 
-## 14. Future work (explicitly post-v1)
+## 14. v2 — the mesh arc (charter, 2026-07-19)
 
-virtio-net + `smoltcp` and a real a2a mesh join (live inference from a colony GPU node); multi-hart with a real `critical-section` impl; timer interrupts (CLINT) + preemptive scheduling or embassy; S-mode/OpenSBI path; persona port; **real-board bring-up on the inbound hardware** (likely JH7110/VisionFive-2 or Milk-V class — RVA23-profile silicon is arriving industry-wide); upstream PRs to ApexOS-RS (the `no_std` protocol gate, an `apexos-state` crate extraction so `state.rs` stops being a copy, a `docs/repo-map.md` pointer to this repo); `no_std` subset of `apexos-confine` semantics if metal ever gets storage.
+v1 proved the substrate; v2 completes the thesis: **the metal node consumes the colony.** Networking arrives and the scripted inference stub is joined by a live one — a goal on bare metal driven by a real colony LLM over the existing wire contract.
+
+### v2 goals
+
+| # | Goal | Acceptance |
+|---|---|---|
+| G8 | virtio-net NIC up on QEMU virt (virtio-mmio, polled) with a deterministic MAC | `net: virtio-net up …` banner; v1 flow unaffected |
+| G9 | smoltcp TCP/IP woven into the cooperative loop (static slirp config: `10.0.2.15/24` → gw `10.0.2.2`; `mtime` → smoltcp clock) | TCP round-trip against a host-side mock, gated by exit code |
+| G10 | WebSocket client speaks the gateway contract: handshake (+ optional bearer), consume `session_init`, exchange raw `Event` frames | Mocked-gateway session established, deterministic gate |
+| G11 | `MeshInference`: each goal step = one gateway turn (`user_prompt` out → `agent_text` deltas → `turn_complete` → verdict); the P7 mtime watchdog stalls quiet turns — **now over a real socket**. Scripted inference remains the CI default | Mocked 3-step goal ends `Done`, byte-identical two-run gate, exit 0; silent-mock variant → `Failed`/exit 2; live-colony demo script documented (not CI-gated) |
+
+### v2 non-goals
+
+No mDNS/peer discovery (configured gateway address only), no TLS (LAN plaintext WS + bearer, matching current colony practice), no serving of anything (pure client), no upstream ApexOS-RS changes (the documented `/ws` contract as-is), no interrupts (smoltcp is poll-native; the D7 loop absorbs it).
+
+### v2 design decisions
+
+| # | Decision | Rationale |
+|---|---|---|
+| D11 | `virtio-drivers` + `smoltcp` + `embedded-websocket` (all `no_std`) | Battle-tested rust-osdev NIC driver over virtio-mmio; poll-native stack fits the cooperative loop; RFC6455 without an executor. Versions pinned at P9.1 from crate source, per rule 6 |
+| D12 | QEMU user-mode networking (`-netdev user` + `-device virtio-net-device`, explicit `mac=`) | No sudo/tap; guest dials out; `10.0.2.2` reaches host services (the mock) and the LAN gateway reaches the real colony. Explicit MAC keeps logs deterministic |
+| D13 | Gates run against a **repo-local mock gateway** (`xtest` host bin speaking the documented contract); the live-colony run is a demo script, never a gate | Deterministic CI with real network I/O; LLM text is inherently nondeterministic so it proves markers, not bytes |
+| D14 | Verdicts over the wire v2-style: the step directive instructs the model to end with a `GOAL_STEP: continue|done|blocked …` line; a missing verdict is `Continue(None)` — upstream's own default. The daemon-side `goal_step` tool isn't reachable from a frontend session | Keeps driver semantics untouched; pragmatic, documented, replaceable post-v2 if upstream grows a remote-turn RPC |
+
+### v2 definition of done
+
+`cargo hosttest` green including mock-gateway tests; the mocked mesh run walks a 3-step goal to `Done` deterministically (byte-identical two-run diff) and the silent-mock run fails by *timeout* with upstream's stall detail; `scripts/run-live.sh` (gateway URL + token via env) documented with a captured live-colony transcript checked into `docs/` as evidence, marked non-normative.
+
+## 15. Future work (explicitly post-v2)
+
+Full a2a mesh membership beyond the client role (mDNS discovery, peers.toml presence, sensor-bridge feed); multi-hart with a real `critical-section` impl; timer interrupts (CLINT) + preemptive scheduling or embassy; S-mode/OpenSBI path; persona port; **real-board bring-up on the inbound hardware** (likely JH7110/VisionFive-2 or Milk-V class — RVA23-profile silicon is arriving industry-wide); upstream PRs to ApexOS-RS (the `no_std` protocol gate, an `apexos-state` crate extraction so `state.rs` stops being a copy, a `docs/repo-map.md` pointer to this repo); `no_std` subset of `apexos-confine` semantics if metal ever gets storage.

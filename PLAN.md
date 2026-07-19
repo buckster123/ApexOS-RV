@@ -151,6 +151,60 @@ Upstream reference: **ApexOS-RS @ `676aa3870ad7e2b469be1dcaec23498c943491a9`** (
 
 ---
 
+---
+
+# v2 — the mesh arc (PRD §14)
+
+Same rules, same gates. The kernel becomes a client of the colony's documented `/ws` contract; nothing upstream changes. Mock-gateway runs are the gates (D13); the live colony is the demo.
+
+## Phase 9 — NIC bring-up: virtio-net on virtio-mmio
+
+**Objective:** the kernel owns a network device.
+
+- [ ] P9.1 Pin `virtio-drivers` (0.13.x at charter time) and read its `Hal` trait + `MmioTransport` docs *from crate source*; decide legacy vs modern MMIO (QEMU may need `-global virtio-mmio.force-legacy=false` — verify against the pinned crate)
+- [ ] P9.2 Runner + `run-qemu.sh` gain `-netdev user,id=n0 -device virtio-net-device,netdev=n0,mac=52:54:00:0b:ee:f1` (explicit MAC = deterministic logs); confirm the v1 flow is byte-identical except the new banner
+- [ ] P9.3 `kernel/src/net/` module: our `Hal` impl (static DMA arena; `unsafe` confined here — CLAUDE.md rule 3 roster grows `net/`), probe the 8 virtio-mmio slots (`0x1000_1000 + n*0x1000`), find the net device, read the MAC
+- [ ] P9.4 Banner `net: virtio-net up mac=52:54:00:0b:ee:f1` before the fold demo; v1 goal flow untouched
+
+**Acceptance:** `run-qemu.sh` exits 0 with the net banner present; two-run byte-identical diff still holds; hosttest unaffected.
+
+## Phase 10 — TCP: smoltcp in the cooperative loop
+
+**Objective:** real sockets, still no interrupts.
+
+- [ ] P10.1 Pin `smoltcp` (0.13.x); glue its `Device` trait over the virtio-net device; `mtime` → smoltcp `Instant` (10 MHz → ms)
+- [ ] P10.2 Static slirp config: `10.0.2.15/24`, gateway `10.0.2.2`; `iface.poll(...)` woven into the P7 loop (poll-when-idle replaces bare `wfi` while sockets are active; armed-wfi otherwise)
+- [ ] P10.3 `xtest/src/bin/mockd.rs` (host, std): TCP echo mode first — the gate peer
+- [ ] P10.4 Kernel smoke behind a `net-smoke` feature: connect `10.0.2.2:<port>`, send a fixed line, expect the echo, print `net: tcp echo ok`, exit 0
+- [ ] P10.5 `scripts/run-mesh-qemu.sh`: starts `mockd`, runs QEMU with the feature build, greps markers, propagates exit, kills the mock
+
+**Acceptance:** mocked echo run exits 0 deterministically; plain run (no feature) still byte-identical with v1+banner.
+
+## Phase 11 — WebSocket: the gateway contract
+
+**Objective:** speak `/ws` exactly as documented (upstream CLAUDE.md §agentd WebSocket protocol).
+
+- [ ] P11.1 Pin `embedded-websocket`; client handshake over the smoltcp socket, optional `Authorization: Bearer` header (compile-time/env-provided token; empty = disabled, matching the gateway)
+- [ ] P11.2 Control frames (gateway extras, not in `Event`): `session_init { session_id, history }` in, `hello { resume_session | new, agent_id?, persona? }` out — small serde types in `kernel/src/net/gateway.rs`, wire-shapes locked by tests against the documented JSON
+- [ ] P11.3 `mockd` grows ws mode (`tungstenite` dep, host-only): accept upgrade, push `session_init`, echo the contract
+- [ ] P11.4 Kernel `mesh-smoke` feature: handshake, consume `session_init`, print `mesh: session <id> established`, clean close, exit 0
+
+**Acceptance:** mocked ws run exits 0 deterministically; frame shapes match the upstream doc verbatim (mock asserts inbound `user_prompt` has no `session` field — the gateway injects it).
+
+## Phase 12 — MeshInference: live inference over the mesh
+
+**Objective:** the thesis, completed — a goal on metal driven by a remote model.
+
+- [ ] P12.1 `MeshInference` (agent-core stays pure: it produces/consumes frames via traits; kernel owns the socket): each `TickContext` step → `user_prompt` with the step directive (objective, step/max, steer, and the D14 verdict convention); accumulate `agent_text` deltas; `turn_complete` → parse trailing `GOAL_STEP:` line → `Verdict`; absent → `Continue(None)` (upstream default)
+- [ ] P12.2 While a turn is in flight, `Inference::next` returns `Pending` — the P7 watchdog now guards a *real* network turn (raise `STEP_TIMEOUT` for mesh builds; keep 2 s for mock CI)
+- [ ] P12.3 `mockd` scripted-LLM mode: fixed 3-step conversation ending `GOAL_STEP: done`; silent mode: accepts the turn then goes quiet (watchdog food)
+- [ ] P12.4 Gates: mocked run walks `Acting 1→2→3 → Done`, exits 0, byte-identical twice; silent-mock run ends `Failed`/`step stalled — no completion`, exit 2 — the stall detail now earned over TCP
+- [ ] P12.5 `scripts/run-live.sh` (`APEXRV_GATEWAY_URL` + `APEXRV_TOKEN` env): the demo against André's real colony; capture one live transcript into `docs/live-run-<date>.log` (non-normative evidence), then update README + BACKLOG + PRD v2 DoD note; tag `v2.0.0`
+
+**Acceptance:** PRD §14 v2 Definition of Done end to end.
+
+---
+
 ## Appendix A — Reference scaffolding
 
 > **Placeholders, not gospel.** Versions looked up 2026-07-19; `riscv-rt`/`riscv`/`embedded-alloc` APIs and linker conventions drift — riscv-rt 0.18 in particular differs from the 0.12-era tutorials all over the internet. P1.3 pins real versions; when a snippet fights the pinned version's docs, **the docs win** — note the delta in the Changelog.
