@@ -172,13 +172,13 @@ Same rules, same gates. The kernel becomes a client of the colony's documented `
 
 **Objective:** real sockets, still no interrupts.
 
-- [ ] P10.1 Pin `smoltcp` (0.13.x); glue its `Device` trait over the virtio-net device; `mtime` → smoltcp `Instant` (10 MHz → ms)
-- [ ] P10.2 Static slirp config: `10.0.2.15/24`, gateway `10.0.2.2`; `iface.poll(...)` woven into the P7 loop (poll-when-idle replaces bare `wfi` while sockets are active; armed-wfi otherwise)
-- [ ] P10.3 `xtest/src/bin/mockd.rs` (host, std): TCP echo mode first — the gate peer
-- [ ] P10.4 Kernel smoke behind a `net-smoke` feature: connect `10.0.2.2:<port>`, send a fixed line, expect the echo, print `net: tcp echo ok`, exit 0
-- [ ] P10.5 `scripts/run-mesh-qemu.sh`: starts `mockd`, runs QEMU with the feature build, greps markers, propagates exit, kills the mock
+- [x] P10.1 Pinned `smoltcp 0.13.1` (no_std features: medium-ethernet/proto-ipv4/socket-tcp/alloc); `Device`/token traits read from source (Rx consume takes `&[u8]` in 0.13); glue in `net/smol.rs` — the standard raw-pointer token pair (rx/tx borrow the same NIC, consumed sequentially on one hart, SAFETY-commented); `mtime`/10k → `Instant::from_millis`
+- [x] P10.2 Static slirp config (`10.0.2.15/24` → `10.0.2.2`), **fixed `random_seed`** for deterministic ISNs; armed-wfi 1 ms quanta between polls (same no-interrupt discipline)
+- [x] P10.3 `xtest/src/bin/mockd.rs` echo mode (std-only, one connection, deterministic output)
+- [x] P10.4 `net/smoke.rs` behind `net-smoke`: connect → ping → verify echo bytes → `net: tcp echo ok` → exit 0; 10 s mtime timeout panics visibly
+- [x] P10.5 `scripts/run-mesh-qemu.sh` (mode → marker table: echo/ws/llm; builds + supervises mockd, trap-kills on exit)
 
-**Acceptance:** mocked echo run exits 0 deterministically; plain run (no feature) still byte-identical with v1+banner.
+**Acceptance:** mocked echo run exits 0 deterministically; plain run (no feature) still byte-identical with v1+banner. **Met 2026-07-19:** echo gate exit 0, two echo runs byte-identical, plain run byte-identical to the P9 baseline, hosttest 41 green, first build clean.
 
 ## Phase 11 — WebSocket: the gateway contract
 
@@ -417,6 +417,7 @@ Start it in plan mode; on approval, auto mode (or accept-edits) fits the build-f
 - 2026-07-19 — v2: plan re-homed from `metal/`-inside-ApexOS-RS to this standalone repo. Corrections from source review @ `676aa38`: (1) `state.rs` = `SystemState` event-fold, goal lifecycle lives in `goal.rs` → Phase 6 restructured (SYNC-COPY the fold, reimplement driver *semantics*); (2) `Planning`/`Reflecting` unused upstream → scripted walk now mirrors the real `Acting→Done/Blocked/Failed` lifecycle; (3) `.cargo/config.toml` moved to repo root with `default-members` + host aliases (config-discovery trap); (4) versions refreshed (riscv-rt 0.18.0, riscv 0.16.1, embedded-alloc 0.7.0). Root-workspace guardrail replaced by vendoring/provenance discipline. Phase 0 partially complete (P0.1, P0.4).
 - 2026-07-19 — Phase 0 nearly closed (gdb 17.1 ✓; found the Ubuntu `qemu-system-riscv` package split, P0.2 corrected). Added `docs/resources.md` + vendored goal-driver design doc (reference copy); cerebro-cortex continuity conventions added to CLAUDE.md; repo published to GitHub (public).
 - 2026-07-19 — P1: riscv-rt 0.18 linking differs from Appendix A snippets (recorded per rule 6): the `memory` crate feature makes the generated `link.x` INCLUDE our `memory.x` from the link-search path (cortex-m-rt style), so rustflags carry a single `-Tlink.x` — the old "memory.x before link.x" two-flag order is obsolete. `memory.x` symbol contract unchanged (REGION_ALIAS, `_heap_size`, `_max_hart_id` all present in 0.18's link.x.in). First build green; ELF entry `0x80000000` confirmed via readelf (P2.3 pre-verified). `cargo hostcheck` currently exits 101 with a benign "workspace has no members" error (kernel excluded, no host members until P5) — acceptance interpreted accordingly.
+- 2026-07-19 — v2/P10: TCP on metal ✓ — `net: tcp echo ok` through virtio-net → smoltcp → slirp → host mock, polled with armed-wfi 1 ms quanta, fixed smoltcp `random_seed` for deterministic ISNs. `main` split into `main`/`normal_flow` so diverging feature gates stay warning-free. Second consecutive first-build-clean network module.
 - 2026-07-19 — v2/P9: NIC up ✓ — `net: virtio-net up mac=52:54:00:0b:ee:f1`. virtio-drivers 0.13 over modern virtio-mmio (force-legacy=false), static-arena Hal with identity share (no MMU). First-build-clean; determinism gate held with the new banner.
 - 2026-07-19 — **v1.0.0** — P8 ✓ and Definition of Done met: all eight phases gated with evidence in a single day (project bootstrap → docs v2 → first boot → diagnostics → heap → protocol vendored+gated → agent core → honest loop → cross-repo proof). 41 host tests; kernel exits by its own report; wire compat proven against pristine upstream across the repo boundary. Upstream PR material banked in `vendor/apexos-protocol/UPSTREAM.md` + BACKLOG §Upstream.
 - 2026-07-19 — P7: the honest loop ✓ — earned gotcha: **riscv-rt boots with `mie = 0`, and `wfi` wakes only on per-source-enabled pending interrupts** — without `mie.MTIE` the armed wakeup never fires and idle sleeps forever (first run hung at Acting(2); `time::init()` sets MTIE once, global `mstatus.MIE` stays off, no trap ever taken). `unsafe` roster in CLAUDE.md rule 3 grew `time.rs`. Driver API grew `TurnResult::Pending` + `poll()` so the negative path is a *time-measured* watchdog stall (2107 ms observed), not a scripted self-report.

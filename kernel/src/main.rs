@@ -18,8 +18,18 @@ fn main() -> ! {
     println!("apexos-rv: hart 0 online");
     heap::init();
     time::init();
-    let _nic = net::init(); // P9: banner + device held alive; P10 threads it into the loop
+    let _nic = net::init(); // P9 banner; P10+ threads the device into the loop
 
+    // P10 net-smoke gate: TCP echo against the host mock — diverges.
+    #[cfg(feature = "net-smoke")]
+    net::smoke::run(_nic);
+
+    #[cfg(not(feature = "net-smoke"))]
+    normal_flow()
+}
+
+#[cfg(not(feature = "net-smoke"))]
+fn normal_flow() -> ! {
     // P4.3 alloc smoke: format! → Vec → print → drop (deterministic output).
     {
         let s = alloc::format!("alloc ok: {}", 42);

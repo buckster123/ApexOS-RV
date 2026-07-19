@@ -12,6 +12,14 @@ use virtio_drivers::{BufferDirection, Hal, PhysAddr};
 
 use crate::println;
 
+pub mod smol;
+
+#[cfg(feature = "net-smoke")]
+pub mod smoke;
+
+/// Must match the runner's `-device virtio-net-device,mac=` (D12 determinism).
+pub const MAC: [u8; 6] = [0x52, 0x54, 0x00, 0x0b, 0xee, 0xf1];
+
 /// QEMU virt: 8 virtio-mmio slots, 4 KiB apart.
 const VIRTIO_MMIO_BASE: usize = 0x1000_1000;
 const VIRTIO_MMIO_STRIDE: usize = 0x1000;

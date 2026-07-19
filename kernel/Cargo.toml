@@ -14,8 +14,10 @@ apexos-protocol  = { path = "../vendor/apexos-protocol", default-features = fals
 serde_json       = { version = "1", default-features = false, features = ["alloc"] }
 apexos-rv-agent-core = { path = "../agent-core" }
 virtio-drivers = "0.13"
+smoltcp = { version = "0.13", default-features = false, features = ["medium-ethernet", "proto-ipv4", "socket-tcp", "alloc"] }
 
 [features]
 panic-test  = []
 tiny-heap   = []   # P4 negative gate: 1 KiB heap → OOM must panic readably
 fail-script = []
+net-smoke   = []   # P10 gate: TCP echo against the host mock, then exit
