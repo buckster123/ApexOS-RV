@@ -23,6 +23,7 @@ name = "apexos-rv-kernel"
 version = "0.1.0"
 dependencies = [
  "apexos-protocol",
+ "apexos-rv-agent-core",
  "critical-section",
  "embedded-alloc",
  "riscv",

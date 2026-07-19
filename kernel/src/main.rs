@@ -3,6 +3,7 @@
 
 extern crate alloc;
 
+pub mod agent;
 pub mod heap;
 pub mod proto;
 pub mod qemu;
@@ -37,8 +38,16 @@ fn main() -> ! {
     #[cfg(feature = "panic-test")]
     panic!("panic-test: intentional panic to prove the reporting path");
 
+    // P6 — colony state fold (asserted) + the scripted goal run, narrated in
+    // protocol events; the goal's terminal state decides the exit code.
     #[cfg(not(feature = "panic-test"))]
-    qemu::exit_pass()
+    {
+        if agent::run() {
+            qemu::exit_pass()
+        } else {
+            qemu::exit_fail(2)
+        }
+    }
 }
 
 #[panic_handler]
