@@ -18,8 +18,8 @@ Upstream reference: **ApexOS-RS @ `676aa3870ad7e2b469be1dcaec23498c943491a9`** (
 **Objective:** toolchain ready; upstream commit pinned.
 
 - [x] P0.1 `rustup target add riscv64gc-unknown-none-elf` (stable toolchain; version recorded below) — *done 2026-07-19*
-- [ ] P0.2 `sudo apt-get install -y qemu-system-riscv gdb-multiarch build-essential` — **note:** on Ubuntu 26.04 / QEMU 10.x, riscv64 moved out of `qemu-system-misc` into its own `qemu-system-riscv` package (older guides say `-misc`)
-- [ ] P0.3 `qemu-system-riscv64 --version` ≥ 7.x (virt machine + sifive_test are ancient features; any modern QEMU is fine)
+- [x] P0.2 `sudo apt-get install -y qemu-system-riscv gdb-multiarch build-essential` — **note:** on Ubuntu 26.04 / QEMU 10.x, riscv64 moved out of `qemu-system-misc` into its own `qemu-system-riscv` package (older guides say `-misc`) — *done 2026-07-19*
+- [x] P0.3 `qemu-system-riscv64 --version` ≥ 7.x — *QEMU 10.2.1 ✓ 2026-07-19; Phase 0 gate closed*
 - [x] P0.4 Pin upstream: record the ApexOS-RS main SHA this project audits/vendors against (header above). For vendoring steps, obtain files at the pin via a fresh shallow clone or `git -C ~/Projects/ApexOS-RS worktree`/`git show` at that SHA — never from an unpinned working tree that may have drifted. — *done 2026-07-19*
 
 **Acceptance:** all four boxes checked; versions note written below.
@@ -34,11 +34,11 @@ Upstream reference: **ApexOS-RS @ `676aa3870ad7e2b469be1dcaec23498c943491a9`** (
 
 **Objective:** this repo cross-compiles an empty kernel.
 
-- [ ] P1.1 Root `Cargo.toml` per Appendix A: `[workspace] members = ["kernel"]`, `default-members = ["kernel"]`, `resolver = "2"`, plus `[workspace.dependencies]` mirroring upstream's `serde`/`serde_json` lines (so the pristine vendored crate builds unchanged in P5.1)
-- [ ] P1.2 Root `.cargo/config.toml` per Appendix A: `build.target`, target-scoped rustflags (memory.x **before** link.x) + QEMU runner, `hosttest`/`hostcheck` aliases
-- [ ] P1.3 Resolve **current** versions of `riscv-rt`, `riscv`, `embedded-alloc` (docs.rs) and pin them in `kernel/Cargo.toml`; Appendix A's numbers were looked up 2026-07-19 but riscv-rt 0.18's runtime surface (trap handling, hart parking, heap symbols) must be read from its own docs, not from older tutorials
-- [ ] P1.4 `kernel/` bin crate `apexos-rv-kernel` with `memory.x` and `build.rs` per Appendix A
-- [ ] P1.5 Minimal `main.rs`: `#![no_std] #![no_main]`, `riscv_rt::entry` fn with `loop {}`, trivial panic handler (`loop {}` for now)
+- [x] P1.1 Root `Cargo.toml` per Appendix A: `[workspace] members = ["kernel"]`, `default-members = ["kernel"]`, `resolver = "2"`, plus `[workspace.dependencies]` mirroring upstream's `serde`/`serde_json` lines (so the pristine vendored crate builds unchanged in P5.1)
+- [x] P1.2 Root `.cargo/config.toml`: `build.target`, target-scoped rustflags + QEMU runner, `hosttest`/`hostcheck` aliases — **deviation from Appendix A:** single `-Tlink.x` flag (see Changelog, riscv-rt 0.18 `memory` feature)
+- [x] P1.3 Pinned from crate source (registry read, not tutorials): riscv-rt 0.18.0 (`memory` feature), riscv 0.16.1 (`critical-section-single-hart` confirmed present), embedded-alloc 0.7.0
+- [x] P1.4 `kernel/` bin crate `apexos-rv-kernel` with `memory.x` (REGION_ALIAS scheme + `_heap_size` confirmed still current in 0.18's link.x.in) and `build.rs`
+- [x] P1.5 Minimal `main.rs`: `#![no_std] #![no_main]`, `riscv_rt::entry` fn with `loop {}`, trivial panic handler (`loop {}` for now)
 
 **Acceptance:** `cargo build` succeeds; `file target/riscv64gc-unknown-none-elf/debug/apexos-rv-kernel` says ELF 64-bit RISC-V; `cargo hostcheck` reports nothing to check yet without erroring on the kernel (excluded).
 
@@ -357,3 +357,4 @@ Start it in plan mode; on approval, auto mode (or accept-edits) fits the build-f
 
 - 2026-07-19 — v2: plan re-homed from `metal/`-inside-ApexOS-RS to this standalone repo. Corrections from source review @ `676aa38`: (1) `state.rs` = `SystemState` event-fold, goal lifecycle lives in `goal.rs` → Phase 6 restructured (SYNC-COPY the fold, reimplement driver *semantics*); (2) `Planning`/`Reflecting` unused upstream → scripted walk now mirrors the real `Acting→Done/Blocked/Failed` lifecycle; (3) `.cargo/config.toml` moved to repo root with `default-members` + host aliases (config-discovery trap); (4) versions refreshed (riscv-rt 0.18.0, riscv 0.16.1, embedded-alloc 0.7.0). Root-workspace guardrail replaced by vendoring/provenance discipline. Phase 0 partially complete (P0.1, P0.4).
 - 2026-07-19 — Phase 0 nearly closed (gdb 17.1 ✓; found the Ubuntu `qemu-system-riscv` package split, P0.2 corrected). Added `docs/resources.md` + vendored goal-driver design doc (reference copy); cerebro-cortex continuity conventions added to CLAUDE.md; repo published to GitHub (public).
+- 2026-07-19 — P1: riscv-rt 0.18 linking differs from Appendix A snippets (recorded per rule 6): the `memory` crate feature makes the generated `link.x` INCLUDE our `memory.x` from the link-search path (cortex-m-rt style), so rustflags carry a single `-Tlink.x` — the old "memory.x before link.x" two-flag order is obsolete. `memory.x` symbol contract unchanged (REGION_ALIAS, `_heap_size`, `_max_hart_id` all present in 0.18's link.x.in). First build green; ELF entry `0x80000000` confirmed via readelf (P2.3 pre-verified). `cargo hostcheck` currently exits 101 with a benign "workspace has no members" error (kernel excluded, no host members until P5) — acceptance interpreted accordingly.

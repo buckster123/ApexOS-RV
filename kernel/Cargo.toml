@@ -1,0 +1,20 @@
+[package]
+name    = "apexos-rv-kernel"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+riscv          = { version = "0.16", features = ["critical-section-single-hart"] }
+# `memory` feature (0.18, cortex-m-rt style): generated link.x INCLUDEs our memory.x
+# from the link-search path (build.rs) — only -Tlink.x is passed, no -Tmemory.x.
+riscv-rt       = { version = "0.18", features = ["memory"] }
+embedded-alloc = "0.7"
+# Phase 5+:
+# apexos-protocol = { path = "../vendor/apexos-protocol", default-features = false, features = ["alloc"] }
+# serde_json      = { version = "1", default-features = false, features = ["alloc"] }
+# Phase 6+:
+# apexos-rv-agent-core = { path = "../agent-core" }
+
+[features]
+panic-test  = []
+fail-script = []
